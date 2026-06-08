@@ -159,7 +159,7 @@ employeeSchema.pre("save", async function (this: IEmployee & Document, next) {
           throw new Error("Failed to generate employee ID");
         }
 
-        employeeId = counter.value.toString().padStart(5, "0");
+        employeeId = counter.value.toString().padStart(4, "0");
 
         // Check if this ID already exists
         const existingEmployee = await mongoose.model("Employee").findOne({
