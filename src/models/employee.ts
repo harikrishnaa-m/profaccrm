@@ -12,7 +12,7 @@ const EmployeeCounterSchema = new Schema({
   value: {
     type: Number,
     required: true,
-    default: 1199, // Setting to 1199 so first increment gives 1200
+    default: 0, // Start from 0 so first increment gives 1
   },
 });
 
@@ -72,10 +72,6 @@ const employeeSchema = new Schema<IEmployee>({
     type: String,
     required: false,
   },
-  emiratesIdNumber: {
-    type: String,
-    required: false,
-  },
   emiratesIssueDate: {
     type: Date,
     required: false,
@@ -85,10 +81,6 @@ const employeeSchema = new Schema<IEmployee>({
     required: false,
   },
   passportUrl: {
-    type: String,
-    required: false,
-  },
-  passportNumber: {
     type: String,
     required: false,
   },
@@ -167,7 +159,7 @@ employeeSchema.pre("save", async function (this: IEmployee & Document, next) {
           throw new Error("Failed to generate employee ID");
         }
 
-        employeeId = `${counter.value}`;
+        employeeId = counter.value.toString().padStart(4, "0");
 
         // Check if this ID already exists
         const existingEmployee = await mongoose.model("Employee").findOne({
