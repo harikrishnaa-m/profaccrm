@@ -3011,42 +3011,36 @@ export class AdminController {
   async createClient(req: Request, res: Response): Promise<Response> {
     try {
       const clientData: IClient = req.body;
-      const {
-        companyName,
-        address,
-        contactPerson,
-        email,
-        password,
-        phone,
-        description,
-      } = clientData;
 
-      if (!companyName || !address || !contactPerson) {
+      if (!clientData?.email || !clientData?.password) {
         return res.status(400).json({
-          message: "companyName, address, and contactPerson are required",
+          message: "Email and password are required",
         });
       }
 
-      const normalizedEmail = email?.trim().toLowerCase();
-      const clientPayload: Partial<IClient> = {
-        companyName,
-        contactPerson,
-        phone,
-        address,
-        description,
+      const normalizedEmail = clientData.email.trim().toLowerCase();
+      //to avoid duplication of clients
+      // const existingUser = await User.findOne({ email: normalizedEmail });
+      // if (existingUser) {
+      //   return res.status(409).json({
+      //     message: "Client already exist",
+      //   });
+      // }
+
+      const hashedPassword = await bcrypt.hash(clientData.password, 10);
+
+      const client = new Client({
+        email: normalizedEmail,
+        password: hashedPassword,
+        companyName: clientData.companyName,
+        contactPerson: clientData.contactPerson,
+        phone: clientData.phone,
+        address: clientData.address,
+        description: clientData.description,
         createdAt: new Date(),
         lastLogin: null,
-      };
+      });
 
-      if (normalizedEmail) {
-        clientPayload.email = normalizedEmail;
-      }
-
-      if (password) {
-        clientPayload.password = await bcrypt.hash(password, 10);
-      }
-
-      const client = new Client(clientPayload as IClient);
       const savedClient = await client.save();
 
       return res.status(201).json({
@@ -3060,11 +3054,8 @@ export class AdminController {
         "code" in error &&
         (error as { code?: number }).code === 11000
       ) {
-        const duplicateKey = (error as any).keyValue;
-        console.error("Duplicate key error while creating client:", duplicateKey);
         return res.status(409).json({
           message: "Client already exist",
-          duplicate: duplicateKey,
         });
       }
       if (error instanceof Error) {
@@ -3267,11 +3258,9 @@ export class AdminController {
         nationality: employeeData.nationality,
         photoUrl: employeeData.photoUrl,
         emiratesIdUrl: employeeData.emiratesIdUrl,
-        emiratesIdNumber: employeeData.emiratesIdNumber,
         emiratesIssueDate: employeeData.emiratesIssueDate,
         emiratesExpiryDate: employeeData.emiratesExpiryDate,
         passportUrl: employeeData.passportUrl,
-        passportNumber: employeeData.passportNumber,
         passportIssueDate: employeeData.passportIssueDate,
         passportExpiryDate: employeeData.passportExpiryDate,
         addressline1: employeeData.addressline1,
@@ -4270,11 +4259,6 @@ export class AdminController {
         description: invoiceData.description,
         invoiceDate: invoiceData.invoiceDate || new Date(),
         dueDate: new Date(invoiceData.dueDate),
-        items: invoiceData.items,
-        subtotal: invoiceData.subtotal,
-        discount: invoiceData.discount,
-        tax: invoiceData.tax,
-        notes: invoiceData.notes,
         status: "Pending",
         createdBy: new Types.ObjectId(adminId),
       });
@@ -4484,13 +4468,9 @@ export class AdminController {
       // Get invoices
       const invoices = await Invoice.find(query)
         .sort({ invoiceDate: -1 })
-        .populate(
-          "client_id",
-          "companyName contactPerson role email phone address",
-        )
+        .populate("client_id", "companyName contactPerson")
         .populate("project_id", "projectName")
-        .populate("createdBy", "username")
-        .lean();
+        .populate("createdBy", "username");
 
       // Statistics
       const totalAmount = invoices.reduce(
