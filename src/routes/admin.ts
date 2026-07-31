@@ -103,6 +103,10 @@ router.put("/updateclient", (req, res, next) => {
   clientController.updateClient(req, res);
 });
 
+router.delete("/deleteclient", (req, res, next) => {
+  adminController.deleteClientById(req, res);
+});
+
 router.post("/add-project", (req, res, next) => {
   departmentcontroller.createProject(req, res);
 });
@@ -367,7 +371,7 @@ router.put("/invoice/:id", (req, res) => {
 });
 
 router.get("/invoice/:id", (req, res) => {
-  adminController.listAllInvoices(req, res);
+  adminController.getInvoice(req, res);
 });
 
 // router.delete('/invoice/:id', (req, res) => {

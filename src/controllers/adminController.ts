@@ -615,6 +615,77 @@ export class AdminController {
     }
   }
 
+  async deleteClientById(req: Request, res: Response): Promise<Response> {
+    try {
+      const authReq = req as AuthRequest;
+      if (!authReq.user || !authReq.user.id) {
+        return res.status(401).json({
+          success: false,
+          message: "Unauthorized: Admin ID is missing",
+        });
+      }
+
+      const { id } = req.body;
+
+      if (!id || !Types.ObjectId.isValid(id)) {
+        return res.status(400).json({
+          success: false,
+          message: "Valid client ID is required",
+        });
+      }
+
+      const client = await Client.findById(id);
+      if (!client) {
+        return res.status(404).json({
+          success: false,
+          message: "Client not found",
+        });
+      }
+
+      const activeProjects = await Project.find({
+        client: id,
+        status: { $in: ["Not Started", "In Progress"] },
+      });
+
+      if (activeProjects.length > 0) {
+        return res.status(400).json({
+          success: false,
+          message: "Cannot delete client with active projects",
+          activeProjects: activeProjects.map((p) => ({
+            id: p._id,
+            name: p.projectName,
+            status: p.status,
+          })),
+        });
+      }
+
+      await Promise.all([
+        Project.deleteMany({ client: id }),
+        Invoice.deleteMany({ client_id: id }),
+        Ticket.deleteMany({ client_id: id }),
+        Review.deleteMany({ user_id: id }),
+      ]);
+
+      await Client.findByIdAndDelete(id);
+
+      return res.status(200).json({
+        success: true,
+        message: "Client and associated data deleted successfully",
+        data: {
+          clientName: client.companyName,
+          deletedAt: new Date(),
+        },
+      });
+    } catch (error) {
+      console.error("Error deleting client:", error);
+      return res.status(500).json({
+        success: false,
+        message: "Error deleting client",
+        error: error instanceof Error ? error.message : "Unknown error",
+      });
+    }
+  }
+
   async getTasksByProjectId(req: Request, res: Response): Promise<Response> {
     try {
       const { project_id } = req.params;
@@ -4448,6 +4519,7 @@ export class AdminController {
         items: invoiceData.items,
         subtotal: invoiceData.subtotal,
         discount: invoiceData.discount,
+        discountPercent: invoiceData.discountPercent,
         tax: invoiceData.tax,
         notes: invoiceData.notes,
         paymentMethod: invoiceData.paymentMethod,
@@ -4518,6 +4590,7 @@ export class AdminController {
 
       // Updates to apply
       const updates: any = {};
+      const unsetUpdates: any = {};
 
       // Update amount if provided
       if (updateData.amount !== undefined) {
@@ -4559,9 +4632,125 @@ export class AdminController {
         updates.paymentMethod = updateData.paymentMethod;
       }
 
+      if (updateData.items !== undefined) {
+        if (!Array.isArray(updateData.items) || updateData.items.length === 0) {
+          return res.status(400).json({
+            success: false,
+            message: "At least one item is required",
+          });
+        }
+
+        for (const item of updateData.items) {
+          const rate = Number(item.rate) || 0;
+          const quantity = Number(item.quantity) || 0;
+
+          if (!item.description || rate <= 0 || quantity <= 0) {
+            return res.status(400).json({
+              success: false,
+              message:
+                "All items must have a description, positive rate, and positive quantity",
+            });
+          }
+        }
+
+        updates.items = updateData.items.map((item) => {
+          const rate = Number(item.rate) || 0;
+          const quantity = Number(item.quantity) || 0;
+          return {
+            description: item.description,
+            type: item.type || "service",
+            quantity,
+            rate,
+            amount: rate * quantity,
+          };
+        });
+      }
+
+      if (updateData.invoiceDate !== undefined) {
+        const invoiceDate = new Date(updateData.invoiceDate);
+        if (isNaN(invoiceDate.getTime())) {
+          return res.status(400).json({
+            success: false,
+            message: "Invalid invoice date format",
+          });
+        }
+        updates.invoiceDate = invoiceDate;
+      }
+
       // Update dueDate if provided
-      if (updateData.dueDate) {
-        updates.dueDate = new Date(updateData.dueDate);
+      if (updateData.dueDate !== undefined) {
+        const dueDate = new Date(updateData.dueDate);
+        if (isNaN(dueDate.getTime())) {
+          return res.status(400).json({
+            success: false,
+            message: "Invalid due date format",
+          });
+        }
+        updates.dueDate = dueDate;
+      }
+
+      if (updateData.discount !== undefined) {
+        if (updateData.discount < 0) {
+          return res.status(400).json({
+            success: false,
+            message: "Discount cannot be negative",
+          });
+        }
+        updates.discount = updateData.discount;
+      }
+
+      if (updateData.discountPercent !== undefined) {
+        if (
+          updateData.discountPercent < 0 ||
+          updateData.discountPercent > 100
+        ) {
+          return res.status(400).json({
+            success: false,
+            message: "Discount percent must be between 0 and 100",
+          });
+        }
+        updates.discountPercent = updateData.discountPercent;
+      }
+
+      if (updateData.subtotal !== undefined) {
+        if (updateData.subtotal < 0) {
+          return res.status(400).json({
+            success: false,
+            message: "Subtotal cannot be negative",
+          });
+        }
+        updates.subtotal = updateData.subtotal;
+      }
+
+      if (updateData.tax !== undefined) {
+        if (updateData.tax < 0) {
+          return res.status(400).json({
+            success: false,
+            message: "Tax cannot be negative",
+          });
+        }
+        updates.tax = updateData.tax;
+      }
+
+      if (updateData.paymentTerms !== undefined) {
+        updates.paymentTerms = updateData.paymentTerms;
+      }
+
+      if (updateData.notes !== undefined) {
+        updates.notes = updateData.notes;
+      }
+
+      if ((updateData as any).paymentDate === null) {
+        unsetUpdates.paymentDate = "";
+      } else if (updateData.paymentDate !== undefined) {
+        const paymentDate = new Date(updateData.paymentDate);
+        if (isNaN(paymentDate.getTime())) {
+          return res.status(400).json({
+            success: false,
+            message: "Invalid payment date format",
+          });
+        }
+        updates.paymentDate = paymentDate;
       }
 
       // Update status if provided
@@ -4576,7 +4765,11 @@ export class AdminController {
         updates.status = updateData.status;
 
         // If status is changed to Paid, set payment date
-        if (updateData.status === "Paid" && !invoice.paymentDate) {
+        if (
+          updateData.status === "Paid" &&
+          !invoice.paymentDate &&
+          updateData.paymentDate === undefined
+        ) {
           updates.paymentDate = updateData.paymentDate || new Date();
         }
       }
@@ -4584,7 +4777,12 @@ export class AdminController {
       // Apply updates
       const updatedInvoice = await Invoice.findByIdAndUpdate(
         invoice._id,
-        { $set: updates },
+        {
+          $set: updates,
+          ...(Object.keys(unsetUpdates).length > 0
+            ? { $unset: unsetUpdates }
+            : {}),
+        },
         { new: true, runValidators: true },
       )
         .populate("client_id", "companyName contactPerson email")
@@ -4626,7 +4824,10 @@ export class AdminController {
 
   async getInvoice(req: Request, res: Response): Promise<Response> {
     try {
-      const invoiceData: GetInvoiceDto = req.body;
+      const invoiceData: GetInvoiceDto = {
+        ...req.body,
+        id: req.params.id || req.body.id,
+      };
 
       // Validate that we have at least one identifier
       if (!invoiceData.id && !invoiceData.invoice_id) {
@@ -4652,7 +4853,10 @@ export class AdminController {
       }
 
       // Populate references
-      await invoice.populate("client_id", "companyName contactPerson email");
+      await invoice.populate(
+        "client_id",
+        "companyName contactPerson role email phone address",
+      );
       if (invoice.project_id) {
         await invoice.populate("project_id", "projectName");
       }
