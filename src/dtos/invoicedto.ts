@@ -16,6 +16,7 @@ export interface CreateInvoiceDto {
   }>;
   subtotal?: number;
   discount?: number;
+  discountPercent?: number;
   tax?: number;
   notes?: string;
   paymentMethod?: "CASH" | "BANK_TRANSFER" | "UPI" | "CARD";
@@ -29,7 +30,21 @@ export interface UpdateInvoiceDto {
   discount?: number;
   tax?: number;
   description?: string;
+  invoiceDate?: Date;
   dueDate?: Date;
+  items?: Array<{
+    description?: string;
+    type?: string;
+    quantity?: number;
+    rate?: number;
+    amount?: number;
+  }>;
+  subtotal?: number;
+  discount?: number;
+  discountPercent?: number;
+  tax?: number;
+  notes?: string;
+  paymentTerms?: string;
   paymentDate?: Date;
   paymentMethod?: "CASH" | "BANK_TRANSFER" | "UPI" | "CARD";
 }
