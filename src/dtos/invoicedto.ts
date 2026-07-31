@@ -18,6 +18,7 @@ export interface CreateInvoiceDto {
   discount?: number;
   tax?: number;
   notes?: string;
+  paymentMethod?: "CASH" | "BANK_TRANSFER" | "UPI" | "CARD";
 }
 
 export interface UpdateInvoiceDto {
@@ -25,9 +26,12 @@ export interface UpdateInvoiceDto {
   invoice_id?: string;
   status?: "Pending" | "Paid" | "Overdue";
   amount?: number;
+  discount?: number;
+  tax?: number;
   description?: string;
   dueDate?: Date;
   paymentDate?: Date;
+  paymentMethod?: "CASH" | "BANK_TRANSFER" | "UPI" | "CARD";
 }
 
 export interface GetInvoiceDto {
