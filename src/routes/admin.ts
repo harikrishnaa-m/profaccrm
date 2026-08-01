@@ -257,6 +257,10 @@ router.get("/accounts/balance-sheet", (req, res) => {
   accountsController.getBalanceSheet(req, res);
 });
 
+router.post("/accounts/close-period", (req, res) => {
+  accountsController.closeAccountingPeriod(req, res);
+});
+
 router.get("/get-employee-statis", (req, res) => {
   adminController.getEmployeeStatusCount(req, res);
 });
