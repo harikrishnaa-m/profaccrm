@@ -494,6 +494,185 @@ export class AccountsController {
     }
   }
 
+  private calculateAccountNet(
+    account: any,
+    vouchers: Array<any>,
+  ): number {
+    const accountId = (account._id as mongoose.Types.ObjectId).toString();
+    const opening =
+      account.normalBalance === "Credit"
+        ? -account.openingBalance
+        : account.openingBalance;
+    const lines = vouchers.flatMap((entry) =>
+      entry.lines.filter(
+        (line: any) =>
+          (line.ledgerAccount as mongoose.Types.ObjectId).toString() ===
+          accountId,
+      ),
+    );
+    const debit = lines.reduce(
+      (sum: number, line: any) => sum + (line.debit || 0),
+      0,
+    );
+    const credit = lines.reduce(
+      (sum: number, line: any) => sum + (line.credit || 0),
+      0,
+    );
+    return opening + debit - credit;
+  }
+
+  async closeAccountingPeriod(req: Request, res: Response): Promise<Response> {
+    try {
+      const {
+        fromDate,
+        toDate,
+        equity_account_id,
+        reference,
+        branch,
+        narration,
+      } = req.body;
+
+      if (!fromDate || !toDate) {
+        return res.status(400).json({
+          success: false,
+          message: "fromDate and toDate are required to close a period",
+        });
+      }
+
+      const equityAccount = equity_account_id
+        ? await LedgerAccount.findById(equity_account_id)
+        : await LedgerAccount.findOne({
+            name: { $regex: /Owner Capital/i },
+            type: "Equity",
+          });
+
+      if (!equityAccount) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "Equity account not found. Provide equity_account_id or create Owner Capital account.",
+        });
+      }
+
+      const voucherFilter: any = { status: "ACTIVE" };
+      voucherFilter.date = {
+        $gte: new Date(fromDate),
+        $lte: new Date(toDate),
+      };
+
+      const vouchers = await Voucher.find(voucherFilter).lean();
+      const accounts = await LedgerAccount.find({
+        type: { $in: ["Income", "Expense"] },
+      }).lean();
+
+      const incomeAccounts = accounts.filter(
+        (account) => account.type === "Income",
+      );
+      const expenseAccounts = accounts.filter(
+        (account) => account.type === "Expense",
+      );
+
+      const incomeLines = incomeAccounts
+        .map((account) => {
+          const amount = -this.calculateAccountNet(account, vouchers);
+          return amount > 0
+            ? {
+                ledgerAccount: new Types.ObjectId(
+                  account._id as mongoose.Types.ObjectId,
+                ),
+                debit: amount,
+                credit: 0,
+                narration: `Closing income account ${account.name}`,
+              }
+            : null;
+        })
+        .filter(Boolean) as Array<any>;
+
+      const expenseLines = expenseAccounts
+        .map((account) => {
+          const amount = this.calculateAccountNet(account, vouchers);
+          return amount > 0
+            ? {
+                ledgerAccount: new Types.ObjectId(
+                  account._id as mongoose.Types.ObjectId,
+                ),
+                debit: 0,
+                credit: amount,
+                narration: `Closing expense account ${account.name}`,
+              }
+            : null;
+        })
+        .filter(Boolean) as Array<any>;
+
+      const totalIncome = incomeLines.reduce(
+        (sum, line) => sum + line.debit,
+        0,
+      );
+      const totalExpenses = expenseLines.reduce(
+        (sum, line) => sum + line.credit, 0,
+      );
+      const netProfit = totalIncome - totalExpenses;
+
+      if (totalIncome === 0 && totalExpenses === 0) {
+        return res.status(400).json({
+          success: false,
+          message: "No income or expense balances found for the selected period",
+        });
+      }
+
+      const equityLine = netProfit >= 0
+        ? {
+            ledgerAccount: equityAccount._id,
+            debit: 0,
+            credit: netProfit,
+            narration: `Closing profit to equity`,
+          }
+        : {
+            ledgerAccount: equityAccount._id,
+            debit: -netProfit,
+            credit: 0,
+            narration: `Closing loss to equity`,
+          };
+
+      const closingLines = [...incomeLines, ...expenseLines, equityLine];
+
+      const authReq = req as AuthRequest;
+      const createdById =
+        authReq.user?.id && Types.ObjectId.isValid(authReq.user.id)
+          ? new Types.ObjectId(authReq.user.id)
+          : new Types.ObjectId();
+
+      const closingVoucher = new Voucher({
+        voucherType: "JOURNAL",
+        date: new Date(toDate),
+        branch,
+        narration:
+          narration || `Closing entry for period ${fromDate} to ${toDate}`,
+        referenceType: "period_close",
+        reference:
+          reference || `Closing ${fromDate} to ${toDate}`,
+        sourceType: "period_close",
+        lines: closingLines,
+        createdBy: createdById,
+      });
+
+      const savedClosingVoucher = await closingVoucher.save();
+
+      return res.status(201).json({
+        success: true,
+        message: "Period closing voucher created successfully",
+        data: savedClosingVoucher,
+      });
+    } catch (error) {
+      console.error("Error closing accounting period:", error);
+      return res.status(500).json({
+        success: false,
+        message: "Error closing accounting period",
+        error: error instanceof Error ? error.message : "Unknown error",
+      });
+    }
+  }
+
   async listVouchers(req: Request, res: Response): Promise<Response> {
     try {
       const { voucherType, referenceType, reference, fromDate, toDate } =
