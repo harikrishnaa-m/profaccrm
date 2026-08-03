@@ -494,10 +494,7 @@ export class AccountsController {
     }
   }
 
-  private calculateAccountNet(
-    account: any,
-    vouchers: Array<any>,
-  ): number {
+  private calculateAccountNet(account: any, vouchers: Array<any>): number {
     const accountId = (account._id as mongoose.Types.ObjectId).toString();
     const opening =
       account.normalBalance === "Credit"
@@ -609,30 +606,33 @@ export class AccountsController {
         0,
       );
       const totalExpenses = expenseLines.reduce(
-        (sum, line) => sum + line.credit, 0,
+        (sum, line) => sum + line.credit,
+        0,
       );
       const netProfit = totalIncome - totalExpenses;
 
       if (totalIncome === 0 && totalExpenses === 0) {
         return res.status(400).json({
           success: false,
-          message: "No income or expense balances found for the selected period",
+          message:
+            "No income or expense balances found for the selected period",
         });
       }
 
-      const equityLine = netProfit >= 0
-        ? {
-            ledgerAccount: equityAccount._id,
-            debit: 0,
-            credit: netProfit,
-            narration: `Closing profit to equity`,
-          }
-        : {
-            ledgerAccount: equityAccount._id,
-            debit: -netProfit,
-            credit: 0,
-            narration: `Closing loss to equity`,
-          };
+      const equityLine =
+        netProfit >= 0
+          ? {
+              ledgerAccount: equityAccount._id,
+              debit: 0,
+              credit: netProfit,
+              narration: `Closing profit to equity`,
+            }
+          : {
+              ledgerAccount: equityAccount._id,
+              debit: -netProfit,
+              credit: 0,
+              narration: `Closing loss to equity`,
+            };
 
       const closingLines = [...incomeLines, ...expenseLines, equityLine];
 
@@ -649,8 +649,7 @@ export class AccountsController {
         narration:
           narration || `Closing entry for period ${fromDate} to ${toDate}`,
         referenceType: "period_close",
-        reference:
-          reference || `Closing ${fromDate} to ${toDate}`,
+        reference: reference || `Closing ${fromDate} to ${toDate}`,
         sourceType: "period_close",
         lines: closingLines,
         createdBy: createdById,
